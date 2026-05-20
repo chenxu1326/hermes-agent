@@ -1,0 +1,48 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    - cron: '0 0 1,15 * *'   # 每月1号和15号的UTC时间00:00触发
+  workflow_dispatch:          # 允许手动触发
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout your fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/facebook/hermes.git   # 替换为官方仓库地址
+
+      - name: Force sync with upstream (discard your local changes on main)
+        run: |
+          git fetch upstream
+          git checkout main
+          git reset --hard upstream/main   # 本地 main 强制变为官方最新
+          git push origin main --force     # 强制推送到你的远程 main
+
+      - name: Remove all official workflow files except sync.yml
+        run: |
+          # 进入 .github/workflows/ 目录（如果不存在则创建）
+          mkdir -p .github/workflows
+          cd .github/workflows
+          # 列出所有 .yml 和 .yaml 文件，排除 sync.yml，然后删除
+          find . -maxdepth 1 -type f \( -name "*.yml" -o -name "*.yaml" \) ! -name "sync.yml" -exec rm -f {} \;
+          # 如果目录变成空目录，也保留它（不影响）
+          cd ../..
+
+      - name: Commit and push the cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/
+          # 只有当有变更时才提交
+          git diff --staged --quiet || git commit -m "Auto-cleanup: keep only sync.yml workflow"
+          git push origin main --force   # 再次强制推送确保清理结果生效
